@@ -5,9 +5,11 @@ import SiloUnit from "./components/SiloUnit";
 import ColorLegend from "./components/ColorLegend";
 
 type SimulationMode = "idle" | "discharging";
+type ExperienceMode = "normal" | "optimisation";
 
 export default function App() {
   const [mode, setMode] = useState<SimulationMode>("idle");
+  const [experienceMode, setExperienceMode] = useState<ExperienceMode>("optimisation");
   const [resetTrigger, setResetTrigger] = useState(0);
   const [flowSpeed, setFlowSpeed] = useState(0.45);
 
@@ -36,6 +38,7 @@ export default function App() {
 
   // Merge all colors for the legend
   const allColors = [...silo1Colors, ...silo2Colors, ...silo3Colors];
+  const normalGray = "#9EA3A8";
 
   // Handle color change from the color picker
   const handleColorChange = (index: number, newColor: string) => {
@@ -57,6 +60,18 @@ export default function App() {
     }
   };
 
+  const activeSilo1Colors =
+    experienceMode === "normal"
+      ? Array.from({ length: silo1Layers }, () => normalGray)
+      : silo1Colors;
+  const activeSilo2Colors =
+    experienceMode === "normal"
+      ? Array.from({ length: silo2Layers }, () => normalGray)
+      : silo2Colors;
+  const activeSilo3Colors =
+    experienceMode === "normal"
+      ? Array.from({ length: silo3Layers }, () => normalGray)
+      : silo3Colors;
   return (
     <div style={{ width: "100vw", height: "100vh", background: "#1a1a2e" }}>
       <div
@@ -72,6 +87,30 @@ export default function App() {
           width: 300,
         }}
       >
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => setExperienceMode("normal")}
+            style={{
+              border:
+                experienceMode === "normal"
+                  ? "2px solid #ffffff"
+                  : "1px solid transparent",
+            }}
+          >
+            Normal Use
+          </button>
+          <button
+            onClick={() => setExperienceMode("optimisation")}
+            style={{
+              border:
+                experienceMode === "optimisation"
+                  ? "2px solid #ffffff"
+                  : "1px solid transparent",
+            }}
+          >
+            Malt Blend Optimisation
+          </button>
+        </div>
         <button
           onClick={() =>
             setMode(mode === "discharging" ? "idle" : "discharging")
@@ -102,7 +141,9 @@ export default function App() {
           />
         </label>
 
-        <ColorLegend allColors={allColors} onColorChange={handleColorChange} />
+        {experienceMode === "optimisation" && (
+          <ColorLegend allColors={allColors} onColorChange={handleColorChange} />
+        )}
       </div>
 
       <Canvas camera={{ position: [8, 3, 10], fov: 60 }}>
@@ -117,7 +158,7 @@ export default function App() {
           resetTrigger={resetTrigger}
           flowSpeed={flowSpeed}
           layers={silo1Layers}
-          layerColors={silo1Colors}
+          layerColors={activeSilo1Colors}
           onDischargeComplete={() => setMode("idle")}
         />
         <SiloUnit
@@ -126,7 +167,7 @@ export default function App() {
           resetTrigger={resetTrigger}
           flowSpeed={flowSpeed}
           layers={silo2Layers}
-          layerColors={silo2Colors}
+          layerColors={activeSilo2Colors}
         />
         <SiloUnit
           position={[5, 0, 0]}
@@ -134,7 +175,7 @@ export default function App() {
           resetTrigger={resetTrigger}
           flowSpeed={flowSpeed}
           layers={silo3Layers}
-          layerColors={silo3Colors}
+          layerColors={activeSilo3Colors}
         />
 
         <OrbitControls />
