@@ -4,6 +4,87 @@ import * as THREE from "three";
 
 type SimulationMode = "idle" | "discharging";
 
+const CONTAINER_FLOOR_Y = -4.45;
+const CONTAINER_MIN_WORLD_X = 7.62;
+const CONTAINER_MAX_WORLD_X = 9.84;
+const CONTAINER_HALF_Z = 0.82;
+
+const GRID_X = 30;
+const GRID_Z = 20;
+const CELL_X = (CONTAINER_MAX_WORLD_X - CONTAINER_MIN_WORLD_X) / GRID_X;
+const CELL_Z = (CONTAINER_HALF_Z * 2) / GRID_Z;
+const ANGLE_OF_REPOSE_RAD = (32 * Math.PI) / 180;
+const MAX_SLOPE = Math.tan(ANGLE_OF_REPOSE_RAD);
+const HEIGHT_PER_CAPTURE = 0.0043;
+const BELT_PULSE_FREQUENCY = 3.3;
+
+const containerBedState = {
+  heights: new Float32Array(GRID_X * GRID_Z),
+  resetVersion: -1,
+};
+
+function gridIndex(ix: number, iz: number) {
+  return iz * GRID_X + ix;
+}
+
+function clamp(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, v));
+}
+
+function worldToCell(worldX: number, worldZ: number) {
+  const nx = (worldX - CONTAINER_MIN_WORLD_X) / (CONTAINER_MAX_WORLD_X - CONTAINER_MIN_WORLD_X);
+  const nz = (worldZ + CONTAINER_HALF_Z) / (CONTAINER_HALF_Z * 2);
+  return {
+    ix: clamp(Math.floor(nx * GRID_X), 0, GRID_X - 1),
+    iz: clamp(Math.floor(nz * GRID_Z), 0, GRID_Z - 1),
+  };
+}
+
+function cellToWorld(ix: number, iz: number) {
+  const worldX = CONTAINER_MIN_WORLD_X + (ix + 0.5) * CELL_X;
+  const worldZ = -CONTAINER_HALF_Z + (iz + 0.5) * CELL_Z;
+  return { worldX, worldZ };
+}
+
+function relaxToStableCell(startX: number, startZ: number) {
+  let ix = startX;
+  let iz = startZ;
+
+  for (let step = 0; step < 18; step++) {
+    const currentH = containerBedState.heights[gridIndex(ix, iz)];
+    let bestIx = ix;
+    let bestIz = iz;
+    let bestDrop = 0;
+
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dz === 0) continue;
+
+        const nx = clamp(ix + dx, 0, GRID_X - 1);
+        const nz = clamp(iz + dz, 0, GRID_Z - 1);
+        if (nx === ix && nz === iz) continue;
+
+        const neighborH = containerBedState.heights[gridIndex(nx, nz)];
+        const dist = Math.hypot(dx * CELL_X, dz * CELL_Z);
+        const allowedHeightDiff = MAX_SLOPE * dist;
+        const unstableDrop = currentH - (neighborH + allowedHeightDiff);
+
+        if (unstableDrop > bestDrop) {
+          bestDrop = unstableDrop;
+          bestIx = nx;
+          bestIz = nz;
+        }
+      }
+    }
+
+    if (bestDrop <= 0.0001) break;
+    ix = bestIx;
+    iz = bestIz;
+  }
+
+  return { ix, iz };
+}
+
 interface Particle {
   id: number;
   position: THREE.Vector3;
@@ -13,8 +94,7 @@ interface Particle {
   captured: boolean;
   beltSpeedFactor: number;
   lateralBias: number;
-  settleRadiusSeed: number;
-  settleAngleSeed: number;
+  packetPhase: number;
 }
 
 interface ParticlesProps {
@@ -26,6 +106,7 @@ interface ParticlesProps {
   worldX: number;
   dischargeRunId: number;
   startDelaySeconds: number;
+  onContainerFillProgress?: (fillRatio: number) => void;
   onDischargeComplete?: () => void;
 }
 
@@ -38,6 +119,7 @@ function Particles({
   worldX,
   dischargeRunId,
   startDelaySeconds,
+  onContainerFillProgress,
   onDischargeComplete,
 }: ParticlesProps) {
   const PARTICLES_PER_LAYER = 6000;
@@ -51,14 +133,10 @@ function Particles({
   const coneBottom = -CONE_HEIGHT;
   const OUTLET_EXIT_Y = coneBottom - 0.05;
   const CONVEYOR_SURFACE_Y = -3.22;
-  const BELT_TRAVEL_SPEED = 0.98;
+  const BELT_TRAVEL_SPEED = 1.02;
   const WORLD_BELT_DROP_START_X = 7.55;
   const WORLD_BELT_EXIT_X = 9.95;
-  const CONTAINER_FLOOR_Y = -4.45;
   const BELT_HALF_WIDTH_Z = 0.56;
-  const CONTAINER_MIN_WORLD_X = 7.62;
-  const CONTAINER_MAX_WORLD_X = 9.84;
-  const CONTAINER_HALF_Z = 0.82;
   const BELT_DROP_START_X = WORLD_BELT_DROP_START_X - worldX;
   const BELT_EXIT_X = WORLD_BELT_EXIT_X - worldX;
   const CONTAINER_MIN_X = CONTAINER_MIN_WORLD_X - worldX;
@@ -114,8 +192,7 @@ function Particles({
           captured: false,
           beltSpeedFactor: 0.75 + Math.random() * 0.55,
           lateralBias: (Math.random() - 0.5) * 0.03,
-          settleRadiusSeed: Math.random(),
-          settleAngleSeed: Math.random(),
+          packetPhase: Math.random() * Math.PI * 2,
         });
       }
     }
@@ -128,11 +205,16 @@ function Particles({
   const prevReset = useRef(resetTrigger);
   const prevDischargeRunId = useRef(dischargeRunId);
   const dischargeStartTime = useRef(0);
-  const capturedCount = useRef(0);
+  const lastReportedFill = useRef(-1);
   const nextStopPercentage = useRef(33.3); // Track the next percentage to stop at
 
   useFrame((state, delta) => {
     const GRAVITY = -3.4 * flowSpeed;
+
+    if (containerBedState.resetVersion !== resetTrigger) {
+      containerBedState.heights.fill(0);
+      containerBedState.resetVersion = resetTrigger;
+    }
 
     if (prevDischargeRunId.current !== dischargeRunId) {
       prevDischargeRunId.current = dischargeRunId;
@@ -146,7 +228,8 @@ function Particles({
         p.captured = false;
       });
       prevReset.current = resetTrigger;
-      capturedCount.current = 0;
+      lastReportedFill.current = 0;
+      onContainerFillProgress?.(0);
       nextStopPercentage.current = 33.3; // Reset target to first 33% mark
     }
 
@@ -156,12 +239,14 @@ function Particles({
 
     // Count discharged particles (those that have been "killed")
     let dischargedCount = 0;
+    let capturedCount = 0;
     const totalParticles = particles.length;
 
     particles.forEach((p) => {
       // Count particles captured in container as discharged mass.
       if (p.captured) {
         dischargedCount++;
+        capturedCount++;
         return;
       }
 
@@ -183,10 +268,24 @@ function Particles({
 
         // Ride on conveyor before outlet.
         if (p.position.y <= CONVEYOR_SURFACE_Y && p.position.x < BELT_DROP_START_X) {
+          const pulse =
+            0.32 +
+            0.68 *
+                Math.max(
+                  0,
+                  Math.sin(
+                  state.clock.elapsedTime * BELT_PULSE_FREQUENCY -
+                    p.position.x * 1.4 +
+                    p.packetPhase,
+                ),
+              );
+          const targetBeltSpeed =
+            BELT_TRAVEL_SPEED * flowSpeed * p.beltSpeedFactor * pulse;
+
           p.position.y = CONVEYOR_SURFACE_Y;
           p.velocity.y = 0;
-          p.velocity.x = BELT_TRAVEL_SPEED * flowSpeed * p.beltSpeedFactor;
-          p.velocity.z = p.lateralBias;
+          p.velocity.x = THREE.MathUtils.lerp(p.velocity.x, targetBeltSpeed, 0.28);
+          p.velocity.z = p.lateralBias * (0.45 + 0.55 * pulse);
           p.position.z = THREE.MathUtils.clamp(
             p.position.z,
             -BELT_HALF_WIDTH_Z,
@@ -200,15 +299,15 @@ function Particles({
             p.position.y = CONVEYOR_SURFACE_Y - 0.02;
           }
           p.velocity.x = Math.max(p.velocity.x, 0.45 * flowSpeed);
-          p.velocity.z += (-p.position.z * 2.6) * delta;
-          p.velocity.z *= 0.98;
+          p.velocity.z += (-p.position.z * 3.1) * delta;
+          p.velocity.z *= 0.965;
         }
 
         const insideContainerX =
           p.position.x >= CONTAINER_MIN_X && p.position.x <= CONTAINER_MAX_X;
         const insideContainerZ = Math.abs(p.position.z) <= CONTAINER_HALF_Z;
 
-        if (insideContainerX || p.position.x >= CONTAINER_MIN_X) {
+        if (p.position.x >= CONTAINER_MIN_X - 0.02) {
           const wallPad = 0.05;
           const minX = CONTAINER_MIN_X + wallPad;
           const maxX = CONTAINER_MAX_X - wallPad;
@@ -230,49 +329,33 @@ function Particles({
             p.velocity.z *= -0.22;
           }
 
-          if (p.position.y <= CONTAINER_FLOOR_Y && insideContainerZ) {
-            p.position.y = CONTAINER_FLOOR_Y;
-            p.velocity.y *= -0.14;
-            p.velocity.x *= 0.58;
-            p.velocity.z *= 0.58;
+          if (insideContainerX && insideContainerZ) {
+            const worldParticleX = p.position.x + worldX;
+            const { ix: startIx, iz: startIz } = worldToCell(
+              worldParticleX,
+              p.position.z,
+            );
+            const impactHeight = containerBedState.heights[gridIndex(startIx, startIz)];
+            const impactSurfaceY = CONTAINER_FLOOR_Y + impactHeight;
 
-            const speed = Math.hypot(p.velocity.x, p.velocity.y, p.velocity.z);
-            if (speed < 0.09) {
-              const fillRatio = Math.min(
-                1,
-                capturedCount.current / (PARTICLES_PER_LAYER * LAYERS * 0.7),
-              );
-              const settleRadius =
-                0.12 + p.settleRadiusSeed * (0.22 + 0.28 * fillRatio);
-              const settleAngle = p.settleAngleSeed * Math.PI * 2;
-              const settleX = THREE.MathUtils.clamp(
-                CONTAINER_MIN_X +
-                  0.28 +
-                  fillRatio * 0.45 +
-                  Math.cos(settleAngle) * settleRadius * 0.32,
-                CONTAINER_MIN_X + 0.08,
-                CONTAINER_MAX_X - 0.08,
-              );
-              const settleZ = THREE.MathUtils.clamp(
-                Math.sin(settleAngle) * settleRadius,
-                -CONTAINER_HALF_Z + 0.08,
-                CONTAINER_HALF_Z - 0.08,
-              );
-              const radialNorm = Math.min(
-                1,
-                Math.abs(settleZ) / (CONTAINER_HALF_Z - 0.08),
-              );
-              const bedLift = 0.05 + fillRatio * 0.55;
-              const mound = (1 - radialNorm) * 0.24;
+            // Switch to deposition model close to the current bed surface.
+            if (p.position.y <= impactSurfaceY + 0.06) {
+              const { ix, iz } = relaxToStableCell(startIx, startIz);
+              const targetIdx = gridIndex(ix, iz);
+              const nextHeight = containerBedState.heights[targetIdx] + HEIGHT_PER_CAPTURE;
+              containerBedState.heights[targetIdx] = nextHeight;
 
+              const { worldX: settledWorldX, worldZ: settledWorldZ } = cellToWorld(
+                ix,
+                iz,
+              );
               p.position.set(
-                settleX,
-                CONTAINER_FLOOR_Y + bedLift + mound,
-                settleZ,
+                settledWorldX - worldX,
+                CONTAINER_FLOOR_Y + nextHeight,
+                settledWorldZ,
               );
               p.velocity.set(0, 0, 0);
               p.captured = true;
-              capturedCount.current++;
               return;
             }
           }
@@ -330,6 +413,17 @@ function Particles({
         p.velocity.z *= 0.5;
       }
     });
+
+    const fillRatio = capturedCount / totalParticles;
+    if (
+      onContainerFillProgress &&
+      (Math.abs(fillRatio - lastReportedFill.current) > 0.005 ||
+        fillRatio === 0 ||
+        fillRatio >= 0.999)
+    ) {
+      lastReportedFill.current = fillRatio;
+      onContainerFillProgress(fillRatio);
+    }
 
     // Check if current target percentage has been discharged
     const dischargePercentage = (dischargedCount / totalParticles) * 100;
@@ -421,6 +515,7 @@ interface SiloUnitProps {
   worldX: number;
   dischargeRunId: number;
   startDelaySeconds: number;
+  onContainerFillProgress?: (fillRatio: number) => void;
   onDischargeComplete?: () => void;
 }
 
@@ -434,6 +529,7 @@ export default function SiloUnit({
   worldX,
   dischargeRunId,
   startDelaySeconds,
+  onContainerFillProgress,
   onDischargeComplete,
 }: SiloUnitProps) {
   return (
@@ -448,6 +544,7 @@ export default function SiloUnit({
         worldX={worldX}
         dischargeRunId={dischargeRunId}
         startDelaySeconds={startDelaySeconds}
+        onContainerFillProgress={onContainerFillProgress}
         onDischargeComplete={onDischargeComplete}
       />
     </group>

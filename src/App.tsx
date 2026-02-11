@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import SiloUnit from "./components/SiloUnit";
@@ -14,6 +14,10 @@ export default function App() {
   const [dischargeRunId, setDischargeRunId] = useState(0);
   const [resetTrigger, setResetTrigger] = useState(0);
   const [flowSpeed, setFlowSpeed] = useState(0.45);
+  const [siloFillRatios, setSiloFillRatios] = useState<[number, number, number]>([
+    0, 0, 0,
+  ]);
+  const [showBlendReady, setShowBlendReady] = useState(false);
 
   // Define layer configurations for each silo
   // Each silo has completely unique colors with no overlap
@@ -74,6 +78,30 @@ export default function App() {
     experienceMode === "normal"
       ? Array.from({ length: silo3Layers }, () => normalGray)
       : silo3Colors;
+
+  const isContainerFilled = siloFillRatios.every((ratio) => ratio >= 0.95);
+
+  useEffect(() => {
+    if (experienceMode !== "optimisation" || mode === "discharging" || !isContainerFilled) {
+      setShowBlendReady(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setShowBlendReady(true);
+    }, 650);
+    return () => clearTimeout(timer);
+  }, [experienceMode, mode, isContainerFilled]);
+
+  const updateSiloFill = (index: number, ratio: number) => {
+    setSiloFillRatios((prev) => {
+      if (Math.abs(prev[index] - ratio) < 0.002) return prev;
+      const next: [number, number, number] = [...prev] as [number, number, number];
+      next[index] = ratio;
+      return next;
+    });
+  };
+
   return (
     <div style={{ width: "100vw", height: "100vh", background: "#1a1a2e" }}>
       {experienceMode === "optimisation" && (
@@ -172,6 +200,33 @@ export default function App() {
           </div>
         </div>
       )}
+      {experienceMode === "optimisation" && showBlendReady && (
+        <div
+          style={{
+            position: "absolute",
+            right: 72,
+            top: "46%",
+            transform: "translateY(-100%)",
+            zIndex: 3,
+            pointerEvents: "none",
+            padding: "14px 18px",
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.24)",
+            background: "rgba(12, 18, 36, 0.86)",
+            color: "white",
+            boxShadow: "0 10px 26px rgba(0,0,0,0.35)",
+            textAlign: "left",
+            minWidth: 280,
+          }}
+        >
+          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 0.4 }}>
+            BrewQuanta® Blend Ready
+          </div>
+          <div style={{ marginTop: 4, fontSize: 14, opacity: 0.9 }}>
+            Repeatable flavor. Predictable output.
+          </div>
+        </div>
+      )}
       <div
         style={{
           position: "absolute",
@@ -215,6 +270,7 @@ export default function App() {
               setMode("idle");
               return;
             }
+            setShowBlendReady(false);
             setDischargeRunId((v) => v + 1);
             setMode("discharging");
           }}
@@ -226,6 +282,8 @@ export default function App() {
           onClick={() => {
             setMode("idle");
             setFlowSpeed(0.45);
+            setShowBlendReady(false);
+            setSiloFillRatios([0, 0, 0]);
             setResetTrigger((v) => v + 1);
           }}
         >
@@ -265,6 +323,7 @@ export default function App() {
           dischargeRunId={dischargeRunId}
           startDelaySeconds={0}
           worldX={-3}
+          onContainerFillProgress={(ratio) => updateSiloFill(0, ratio)}
           onDischargeComplete={() => setMode("idle")}
         />
         <SiloUnit
@@ -277,6 +336,7 @@ export default function App() {
           dischargeRunId={dischargeRunId}
           startDelaySeconds={3}
           worldX={0}
+          onContainerFillProgress={(ratio) => updateSiloFill(1, ratio)}
         />
         <SiloUnit
           position={[3, 0, 0]}
@@ -288,6 +348,7 @@ export default function App() {
           dischargeRunId={dischargeRunId}
           startDelaySeconds={6}
           worldX={3}
+          onContainerFillProgress={(ratio) => updateSiloFill(2, ratio)}
         />
         <ConveyorBelt />
 
