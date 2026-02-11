@@ -10,6 +10,7 @@ interface Particle {
   velocity: THREE.Vector3;
   layer: number;
   initialPosition: THREE.Vector3;
+  captured: boolean;
 }
 
 interface ParticlesProps {
@@ -46,12 +47,18 @@ function Particles({
   const coneBottom = -CONE_HEIGHT;
   const OUTLET_EXIT_Y = coneBottom - 0.05;
   const CONVEYOR_SURFACE_Y = -3.22;
-  const BELT_TRAVEL_SPEED = 0.9;
+  const BELT_TRAVEL_SPEED = 1.05;
   const WORLD_BELT_DROP_START_X = 7.9;
   const WORLD_BELT_EXIT_X = 10.4;
-  const CONTAINER_FLOOR_Y = -3.95;
+  const CONTAINER_FLOOR_Y = -4.45;
+  const BELT_HALF_WIDTH_Z = 0.58;
+  const CONTAINER_MIN_WORLD_X = 7.75;
+  const CONTAINER_MAX_WORLD_X = 9.75;
+  const CONTAINER_HALF_Z = 0.8;
   const BELT_DROP_START_X = WORLD_BELT_DROP_START_X - worldX;
   const BELT_EXIT_X = WORLD_BELT_EXIT_X - worldX;
+  const CONTAINER_MIN_X = CONTAINER_MIN_WORLD_X - worldX;
+  const CONTAINER_MAX_X = CONTAINER_MAX_WORLD_X - worldX;
 
   // 🔧 Layer realism tuning
   // Calculate total silo height and make layers take up 75% of it
@@ -100,6 +107,7 @@ function Particles({
           velocity: new THREE.Vector3(),
           layer,
           initialPosition: pos.clone(),
+          captured: false,
         });
       }
     }
@@ -126,6 +134,7 @@ function Particles({
       particles.forEach((p) => {
         p.position.copy(p.initialPosition);
         p.velocity.set(0, 0, 0);
+        p.captured = false;
       });
       prevReset.current = resetTrigger;
       nextStopPercentage.current = 33.3; // Reset target to first 33% mark
@@ -140,9 +149,12 @@ function Particles({
     const totalParticles = particles.length;
 
     particles.forEach((p) => {
-      // Count particles that have been discharged (set to y=-1000)
-      if (p.position.y <= -999) {
+      // Count particles captured in container as discharged mass.
+      if (p.captured || p.position.y <= -999) {
         dischargedCount++;
+        if (p.captured) {
+          return;
+        }
       }
 
       const isOutsideSilo = p.position.y < OUTLET_EXIT_Y;
@@ -164,7 +176,12 @@ function Particles({
           p.position.y = CONVEYOR_SURFACE_Y;
           p.velocity.y = 0;
           p.velocity.x = BELT_TRAVEL_SPEED * flowSpeed * speedFactor;
-          p.velocity.z = (jitter - 0.5) * 0.22;
+          p.velocity.z = (jitter - 0.5) * 0.04;
+          p.position.z = THREE.MathUtils.clamp(
+            p.position.z,
+            -BELT_HALF_WIDTH_Z,
+            BELT_HALF_WIDTH_Z,
+          );
         }
 
         // At conveyor end, let particles fall into the receiving container.
@@ -174,10 +191,29 @@ function Particles({
           }
           p.velocity.y += GRAVITY * delta * 1.2;
           p.velocity.x = Math.max(p.velocity.x, 0.45 * flowSpeed);
-          p.velocity.z *= 0.95;
+          // Funnel stream into bin opening instead of spilling sideways.
+          p.velocity.z += (-p.position.z * 2.2) * delta;
+          p.velocity.z *= 0.94;
+
+          if (p.position.x > CONTAINER_MAX_X) {
+            p.position.x = CONTAINER_MAX_X;
+            p.velocity.x *= 0.4;
+          }
         }
 
-        if (p.position.y <= CONTAINER_FLOOR_Y || p.position.x > BELT_EXIT_X) {
+        const insideContainerX =
+          p.position.x >= CONTAINER_MIN_X && p.position.x <= CONTAINER_MAX_X;
+        const insideContainerZ = Math.abs(p.position.z) <= CONTAINER_HALF_Z;
+
+        if (insideContainerX && insideContainerZ && p.position.y <= CONTAINER_FLOOR_Y) {
+          p.captured = true;
+          // Small deterministic height spread to show colored lot accumulation.
+          p.position.y = CONTAINER_FLOOR_Y + ((p.id % 17) / 17) * 0.42;
+          p.velocity.set(0, 0, 0);
+          return;
+        }
+
+        if (p.position.x > BELT_EXIT_X) {
           p.position.set(0, -1000, 0);
           p.velocity.set(0, 0, 0);
         }
