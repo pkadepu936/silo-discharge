@@ -11,6 +11,7 @@ type ExperienceMode = "normal" | "optimisation";
 export default function App() {
   const [mode, setMode] = useState<SimulationMode>("idle");
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("optimisation");
+  const [dischargeRunId, setDischargeRunId] = useState(0);
   const [resetTrigger, setResetTrigger] = useState(0);
   const [flowSpeed, setFlowSpeed] = useState(0.45);
 
@@ -115,7 +116,7 @@ export default function App() {
               boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
             }}
           >
-            SILO DISCHARGE + MALT BLEND OPTIMISATION
+            SILO DISCHARGE
           </div>
           <div
             style={{
@@ -126,6 +127,48 @@ export default function App() {
             }}
           >
             ↓
+          </div>
+        </div>
+      )}
+      {experienceMode === "optimisation" && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 18,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 2,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 2,
+            color: "white",
+            pointerEvents: "none",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 48,
+              lineHeight: 1,
+              color: "#ffd666",
+              textShadow: "0 0 18px rgba(255,214,102,0.55)",
+            }}
+          >
+            ↑
+          </div>
+          <div
+            style={{
+              padding: "8px 16px",
+              borderRadius: 999,
+              background: "rgba(21, 27, 42, 0.88)",
+              border: "1px solid rgba(255,255,255,0.26)",
+              fontWeight: 700,
+              fontSize: 14,
+              letterSpacing: 0.4,
+            }}
+          >
+            MALT BLEND OPTIMISATION
           </div>
         </div>
       )}
@@ -167,9 +210,14 @@ export default function App() {
           </button>
         </div>
         <button
-          onClick={() =>
-            setMode(mode === "discharging" ? "idle" : "discharging")
-          }
+          onClick={() => {
+            if (mode === "discharging") {
+              setMode("idle");
+              return;
+            }
+            setDischargeRunId((v) => v + 1);
+            setMode("discharging");
+          }}
         >
           {mode === "discharging" ? "Stop" : "Start"} Discharge
         </button>
@@ -214,6 +262,8 @@ export default function App() {
           flowSpeed={flowSpeed}
           layers={silo1Layers}
           layerColors={activeSilo1Colors}
+          dischargeRunId={dischargeRunId}
+          startDelaySeconds={0}
           onDischargeComplete={() => setMode("idle")}
         />
         <SiloUnit
@@ -223,6 +273,8 @@ export default function App() {
           flowSpeed={flowSpeed}
           layers={silo2Layers}
           layerColors={activeSilo2Colors}
+          dischargeRunId={dischargeRunId}
+          startDelaySeconds={3}
         />
         <SiloUnit
           position={[5, 0, 0]}
@@ -231,6 +283,8 @@ export default function App() {
           flowSpeed={flowSpeed}
           layers={silo3Layers}
           layerColors={activeSilo3Colors}
+          dischargeRunId={dischargeRunId}
+          startDelaySeconds={6}
         />
         <ConveyorBelt />
 

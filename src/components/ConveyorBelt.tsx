@@ -44,6 +44,60 @@ export default function ConveyorBelt() {
           roughness={0.35}
         />
       </mesh>
+
+      <group position={[8.74, -0.62, 0]}>
+        <mesh position={[0, -0.58, 0]}>
+          <boxGeometry args={[2.3, 0.18, 1.9]} />
+          <meshStandardMaterial
+            color="#a7b0bf"
+            transparent
+            opacity={0.32}
+            metalness={0.2}
+            roughness={0.55}
+          />
+        </mesh>
+
+        <mesh position={[0, 0.15, -0.86]}>
+          <boxGeometry args={[2.3, 1.3, 0.16]} />
+          <meshStandardMaterial
+            color="#c4ccd8"
+            transparent
+            opacity={0.26}
+            metalness={0.15}
+            roughness={0.62}
+          />
+        </mesh>
+        <mesh position={[0, 0.15, 0.86]}>
+          <boxGeometry args={[2.3, 1.3, 0.16]} />
+          <meshStandardMaterial
+            color="#c4ccd8"
+            transparent
+            opacity={0.26}
+            metalness={0.15}
+            roughness={0.62}
+          />
+        </mesh>
+        <mesh position={[-1.07, 0.15, 0]}>
+          <boxGeometry args={[0.16, 1.3, 1.9]} />
+          <meshStandardMaterial
+            color="#c4ccd8"
+            transparent
+            opacity={0.26}
+            metalness={0.15}
+            roughness={0.62}
+          />
+        </mesh>
+        <mesh position={[1.07, 0.15, 0]}>
+          <boxGeometry args={[0.16, 1.3, 1.9]} />
+          <meshStandardMaterial
+            color="#c4ccd8"
+            transparent
+            opacity={0.26}
+            metalness={0.15}
+            roughness={0.62}
+          />
+        </mesh>
+      </group>
     </group>
   );
 }

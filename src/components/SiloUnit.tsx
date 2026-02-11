@@ -18,6 +18,8 @@ interface ParticlesProps {
   flowSpeed: number;
   layers: number;
   layerColors: string[];
+  dischargeRunId: number;
+  startDelaySeconds: number;
   onDischargeComplete?: () => void;
 }
 
@@ -27,6 +29,8 @@ function Particles({
   flowSpeed,
   layers,
   layerColors,
+  dischargeRunId,
+  startDelaySeconds,
   onDischargeComplete,
 }: ParticlesProps) {
   const PARTICLES_PER_LAYER = 6000;
@@ -39,7 +43,11 @@ function Particles({
 
   const coneBottom = -CONE_HEIGHT;
   const OUTLET_EXIT_Y = coneBottom - 0.05;
-  const KILL_Y = coneBottom - 2.0;
+  const CONVEYOR_SURFACE_Y = -3.22;
+  const BELT_TRAVEL_SPEED = 1.35;
+  const BELT_DROP_START_X = 7.7;
+  const BELT_EXIT_X = 10.3;
+  const CONTAINER_FLOOR_Y = -3.95;
 
   // 🔧 Layer realism tuning
   // Calculate total silo height and make layers take up 75% of it
@@ -98,10 +106,17 @@ function Particles({
   const instancedMeshRefs = useRef<(THREE.InstancedMesh | null)[]>([]);
   const temp = useMemo(() => new THREE.Object3D(), []);
   const prevReset = useRef(resetTrigger);
+  const prevDischargeRunId = useRef(dischargeRunId);
+  const dischargeStartTime = useRef(0);
   const nextStopPercentage = useRef(33.3); // Track the next percentage to stop at
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const GRAVITY = -3.4 * flowSpeed;
+
+    if (prevDischargeRunId.current !== dischargeRunId) {
+      prevDischargeRunId.current = dischargeRunId;
+      dischargeStartTime.current = state.clock.elapsedTime;
+    }
 
     if (prevReset.current !== resetTrigger) {
       particles.forEach((p) => {
@@ -111,6 +126,10 @@ function Particles({
       prevReset.current = resetTrigger;
       nextStopPercentage.current = 33.3; // Reset target to first 33% mark
     }
+
+    const elapsedSinceRunStart = state.clock.elapsedTime - dischargeStartTime.current;
+    const isSiloEnabled =
+      mode === "discharging" && elapsedSinceRunStart >= startDelaySeconds;
 
     // Count discharged particles (those that have been "killed")
     let dischargedCount = 0;
@@ -124,7 +143,7 @@ function Particles({
 
       const isOutsideSilo = p.position.y < OUTLET_EXIT_Y;
 
-      if (mode !== "discharging" && !isOutsideSilo) {
+      if (!isSiloEnabled && !isOutsideSilo) {
         p.velocity.set(0, 0, 0);
         return;
       }
@@ -132,11 +151,27 @@ function Particles({
       p.velocity.y += GRAVITY * delta;
 
       if (p.position.y < OUTLET_EXIT_Y) {
-        p.velocity.x = 0;
-        p.velocity.z = 0;
         p.position.addScaledVector(p.velocity, delta * flowSpeed);
 
-        if (p.position.y < KILL_Y) {
+        // Ride on conveyor before outlet.
+        if (p.position.y <= CONVEYOR_SURFACE_Y && p.position.x < BELT_DROP_START_X) {
+          p.position.y = CONVEYOR_SURFACE_Y;
+          p.velocity.y = 0;
+          p.velocity.z *= 0.85;
+          p.velocity.x = BELT_TRAVEL_SPEED * flowSpeed;
+        }
+
+        // At conveyor end, let particles fall into the receiving container.
+        if (p.position.x >= BELT_DROP_START_X) {
+          if (p.position.y > CONVEYOR_SURFACE_Y - 0.02) {
+            p.position.y = CONVEYOR_SURFACE_Y - 0.02;
+          }
+          p.velocity.y += GRAVITY * delta * 1.2;
+          p.velocity.x = Math.max(p.velocity.x, 0.45 * flowSpeed);
+          p.velocity.z *= 0.95;
+        }
+
+        if (p.position.y <= CONTAINER_FLOOR_Y || p.position.x > BELT_EXIT_X) {
           p.position.set(0, -1000, 0);
           p.velocity.set(0, 0, 0);
         }
@@ -276,6 +311,8 @@ interface SiloUnitProps {
   flowSpeed: number;
   layers: number;
   layerColors: string[];
+  dischargeRunId: number;
+  startDelaySeconds: number;
   onDischargeComplete?: () => void;
 }
 
@@ -286,6 +323,8 @@ export default function SiloUnit({
   flowSpeed,
   layers,
   layerColors,
+  dischargeRunId,
+  startDelaySeconds,
   onDischargeComplete,
 }: SiloUnitProps) {
   return (
@@ -297,6 +336,8 @@ export default function SiloUnit({
         flowSpeed={flowSpeed}
         layers={layers}
         layerColors={layerColors}
+        dischargeRunId={dischargeRunId}
+        startDelaySeconds={startDelaySeconds}
         onDischargeComplete={onDischargeComplete}
       />
     </group>
