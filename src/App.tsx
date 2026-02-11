@@ -256,7 +256,7 @@ export default function App() {
 
         {/* Three silos positioned side by side */}
         <SiloUnit
-          position={[-5, 0, 0]}
+          position={[-3, 0, 0]}
           mode={mode}
           resetTrigger={resetTrigger}
           flowSpeed={flowSpeed}
@@ -264,6 +264,7 @@ export default function App() {
           layerColors={activeSilo1Colors}
           dischargeRunId={dischargeRunId}
           startDelaySeconds={0}
+          worldX={-3}
           onDischargeComplete={() => setMode("idle")}
         />
         <SiloUnit
@@ -275,9 +276,10 @@ export default function App() {
           layerColors={activeSilo2Colors}
           dischargeRunId={dischargeRunId}
           startDelaySeconds={3}
+          worldX={0}
         />
         <SiloUnit
-          position={[5, 0, 0]}
+          position={[3, 0, 0]}
           mode={mode}
           resetTrigger={resetTrigger}
           flowSpeed={flowSpeed}
@@ -285,6 +287,7 @@ export default function App() {
           layerColors={activeSilo3Colors}
           dischargeRunId={dischargeRunId}
           startDelaySeconds={6}
+          worldX={3}
         />
         <ConveyorBelt />
 

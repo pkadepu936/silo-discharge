@@ -18,6 +18,7 @@ interface ParticlesProps {
   flowSpeed: number;
   layers: number;
   layerColors: string[];
+  worldX: number;
   dischargeRunId: number;
   startDelaySeconds: number;
   onDischargeComplete?: () => void;
@@ -29,6 +30,7 @@ function Particles({
   flowSpeed,
   layers,
   layerColors,
+  worldX,
   dischargeRunId,
   startDelaySeconds,
   onDischargeComplete,
@@ -44,10 +46,12 @@ function Particles({
   const coneBottom = -CONE_HEIGHT;
   const OUTLET_EXIT_Y = coneBottom - 0.05;
   const CONVEYOR_SURFACE_Y = -3.22;
-  const BELT_TRAVEL_SPEED = 1.35;
-  const BELT_DROP_START_X = 7.7;
-  const BELT_EXIT_X = 10.3;
+  const BELT_TRAVEL_SPEED = 0.9;
+  const WORLD_BELT_DROP_START_X = 7.9;
+  const WORLD_BELT_EXIT_X = 10.4;
   const CONTAINER_FLOOR_Y = -3.95;
+  const BELT_DROP_START_X = WORLD_BELT_DROP_START_X - worldX;
+  const BELT_EXIT_X = WORLD_BELT_EXIT_X - worldX;
 
   // 🔧 Layer realism tuning
   // Calculate total silo height and make layers take up 75% of it
@@ -155,10 +159,12 @@ function Particles({
 
         // Ride on conveyor before outlet.
         if (p.position.y <= CONVEYOR_SURFACE_Y && p.position.x < BELT_DROP_START_X) {
+          const jitter = ((p.id * 9301 + 49297) % 233280) / 233280;
+          const speedFactor = 0.65 + jitter * 0.7;
           p.position.y = CONVEYOR_SURFACE_Y;
           p.velocity.y = 0;
-          p.velocity.z *= 0.85;
-          p.velocity.x = BELT_TRAVEL_SPEED * flowSpeed;
+          p.velocity.x = BELT_TRAVEL_SPEED * flowSpeed * speedFactor;
+          p.velocity.z = (jitter - 0.5) * 0.22;
         }
 
         // At conveyor end, let particles fall into the receiving container.
@@ -311,6 +317,7 @@ interface SiloUnitProps {
   flowSpeed: number;
   layers: number;
   layerColors: string[];
+  worldX: number;
   dischargeRunId: number;
   startDelaySeconds: number;
   onDischargeComplete?: () => void;
@@ -323,6 +330,7 @@ export default function SiloUnit({
   flowSpeed,
   layers,
   layerColors,
+  worldX,
   dischargeRunId,
   startDelaySeconds,
   onDischargeComplete,
@@ -336,6 +344,7 @@ export default function SiloUnit({
         flowSpeed={flowSpeed}
         layers={layers}
         layerColors={layerColors}
+        worldX={worldX}
         dischargeRunId={dischargeRunId}
         startDelaySeconds={startDelaySeconds}
         onDischargeComplete={onDischargeComplete}
