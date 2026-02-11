@@ -11,6 +11,10 @@ interface Particle {
   layer: number;
   initialPosition: THREE.Vector3;
   captured: boolean;
+  beltSpeedFactor: number;
+  lateralBias: number;
+  settleRadiusSeed: number;
+  settleAngleSeed: number;
 }
 
 interface ParticlesProps {
@@ -47,14 +51,14 @@ function Particles({
   const coneBottom = -CONE_HEIGHT;
   const OUTLET_EXIT_Y = coneBottom - 0.05;
   const CONVEYOR_SURFACE_Y = -3.22;
-  const BELT_TRAVEL_SPEED = 1.05;
-  const WORLD_BELT_DROP_START_X = 7.9;
-  const WORLD_BELT_EXIT_X = 10.4;
+  const BELT_TRAVEL_SPEED = 0.98;
+  const WORLD_BELT_DROP_START_X = 7.55;
+  const WORLD_BELT_EXIT_X = 9.95;
   const CONTAINER_FLOOR_Y = -4.45;
-  const BELT_HALF_WIDTH_Z = 0.58;
-  const CONTAINER_MIN_WORLD_X = 7.75;
-  const CONTAINER_MAX_WORLD_X = 9.75;
-  const CONTAINER_HALF_Z = 0.8;
+  const BELT_HALF_WIDTH_Z = 0.56;
+  const CONTAINER_MIN_WORLD_X = 7.62;
+  const CONTAINER_MAX_WORLD_X = 9.84;
+  const CONTAINER_HALF_Z = 0.82;
   const BELT_DROP_START_X = WORLD_BELT_DROP_START_X - worldX;
   const BELT_EXIT_X = WORLD_BELT_EXIT_X - worldX;
   const CONTAINER_MIN_X = CONTAINER_MIN_WORLD_X - worldX;
@@ -108,6 +112,10 @@ function Particles({
           layer,
           initialPosition: pos.clone(),
           captured: false,
+          beltSpeedFactor: 0.75 + Math.random() * 0.55,
+          lateralBias: (Math.random() - 0.5) * 0.03,
+          settleRadiusSeed: Math.random(),
+          settleAngleSeed: Math.random(),
         });
       }
     }
@@ -120,6 +128,7 @@ function Particles({
   const prevReset = useRef(resetTrigger);
   const prevDischargeRunId = useRef(dischargeRunId);
   const dischargeStartTime = useRef(0);
+  const capturedCount = useRef(0);
   const nextStopPercentage = useRef(33.3); // Track the next percentage to stop at
 
   useFrame((state, delta) => {
@@ -137,6 +146,7 @@ function Particles({
         p.captured = false;
       });
       prevReset.current = resetTrigger;
+      capturedCount.current = 0;
       nextStopPercentage.current = 33.3; // Reset target to first 33% mark
     }
 
@@ -150,11 +160,13 @@ function Particles({
 
     particles.forEach((p) => {
       // Count particles captured in container as discharged mass.
-      if (p.captured || p.position.y <= -999) {
+      if (p.captured) {
         dischargedCount++;
-        if (p.captured) {
-          return;
-        }
+        return;
+      }
+
+      if (p.position.y <= -999) {
+        dischargedCount++;
       }
 
       const isOutsideSilo = p.position.y < OUTLET_EXIT_Y;
@@ -171,12 +183,10 @@ function Particles({
 
         // Ride on conveyor before outlet.
         if (p.position.y <= CONVEYOR_SURFACE_Y && p.position.x < BELT_DROP_START_X) {
-          const jitter = ((p.id * 9301 + 49297) % 233280) / 233280;
-          const speedFactor = 0.65 + jitter * 0.7;
           p.position.y = CONVEYOR_SURFACE_Y;
           p.velocity.y = 0;
-          p.velocity.x = BELT_TRAVEL_SPEED * flowSpeed * speedFactor;
-          p.velocity.z = (jitter - 0.5) * 0.04;
+          p.velocity.x = BELT_TRAVEL_SPEED * flowSpeed * p.beltSpeedFactor;
+          p.velocity.z = p.lateralBias;
           p.position.z = THREE.MathUtils.clamp(
             p.position.z,
             -BELT_HALF_WIDTH_Z,
@@ -189,31 +199,86 @@ function Particles({
           if (p.position.y > CONVEYOR_SURFACE_Y - 0.02) {
             p.position.y = CONVEYOR_SURFACE_Y - 0.02;
           }
-          p.velocity.y += GRAVITY * delta * 1.2;
           p.velocity.x = Math.max(p.velocity.x, 0.45 * flowSpeed);
-          // Funnel stream into bin opening instead of spilling sideways.
-          p.velocity.z += (-p.position.z * 2.2) * delta;
-          p.velocity.z *= 0.94;
-
-          if (p.position.x > CONTAINER_MAX_X) {
-            p.position.x = CONTAINER_MAX_X;
-            p.velocity.x *= 0.4;
-          }
+          p.velocity.z += (-p.position.z * 2.6) * delta;
+          p.velocity.z *= 0.98;
         }
 
         const insideContainerX =
           p.position.x >= CONTAINER_MIN_X && p.position.x <= CONTAINER_MAX_X;
         const insideContainerZ = Math.abs(p.position.z) <= CONTAINER_HALF_Z;
 
-        if (insideContainerX && insideContainerZ && p.position.y <= CONTAINER_FLOOR_Y) {
-          p.captured = true;
-          // Small deterministic height spread to show colored lot accumulation.
-          p.position.y = CONTAINER_FLOOR_Y + ((p.id % 17) / 17) * 0.42;
-          p.velocity.set(0, 0, 0);
-          return;
+        if (insideContainerX || p.position.x >= CONTAINER_MIN_X) {
+          const wallPad = 0.05;
+          const minX = CONTAINER_MIN_X + wallPad;
+          const maxX = CONTAINER_MAX_X - wallPad;
+          const maxZ = CONTAINER_HALF_Z - wallPad;
+
+          if (p.position.x < minX) {
+            p.position.x = minX;
+            p.velocity.x = Math.abs(p.velocity.x) * 0.22;
+          } else if (p.position.x > maxX) {
+            p.position.x = maxX;
+            p.velocity.x *= -0.22;
+          }
+
+          if (p.position.z < -maxZ) {
+            p.position.z = -maxZ;
+            p.velocity.z *= -0.22;
+          } else if (p.position.z > maxZ) {
+            p.position.z = maxZ;
+            p.velocity.z *= -0.22;
+          }
+
+          if (p.position.y <= CONTAINER_FLOOR_Y && insideContainerZ) {
+            p.position.y = CONTAINER_FLOOR_Y;
+            p.velocity.y *= -0.14;
+            p.velocity.x *= 0.58;
+            p.velocity.z *= 0.58;
+
+            const speed = Math.hypot(p.velocity.x, p.velocity.y, p.velocity.z);
+            if (speed < 0.09) {
+              const fillRatio = Math.min(
+                1,
+                capturedCount.current / (PARTICLES_PER_LAYER * LAYERS * 0.7),
+              );
+              const settleRadius =
+                0.12 + p.settleRadiusSeed * (0.22 + 0.28 * fillRatio);
+              const settleAngle = p.settleAngleSeed * Math.PI * 2;
+              const settleX = THREE.MathUtils.clamp(
+                CONTAINER_MIN_X +
+                  0.28 +
+                  fillRatio * 0.45 +
+                  Math.cos(settleAngle) * settleRadius * 0.32,
+                CONTAINER_MIN_X + 0.08,
+                CONTAINER_MAX_X - 0.08,
+              );
+              const settleZ = THREE.MathUtils.clamp(
+                Math.sin(settleAngle) * settleRadius,
+                -CONTAINER_HALF_Z + 0.08,
+                CONTAINER_HALF_Z - 0.08,
+              );
+              const radialNorm = Math.min(
+                1,
+                Math.abs(settleZ) / (CONTAINER_HALF_Z - 0.08),
+              );
+              const bedLift = 0.05 + fillRatio * 0.55;
+              const mound = (1 - radialNorm) * 0.24;
+
+              p.position.set(
+                settleX,
+                CONTAINER_FLOOR_Y + bedLift + mound,
+                settleZ,
+              );
+              p.velocity.set(0, 0, 0);
+              p.captured = true;
+              capturedCount.current++;
+              return;
+            }
+          }
         }
 
-        if (p.position.x > BELT_EXIT_X) {
+        if (p.position.x > BELT_EXIT_X || p.position.y < CONTAINER_FLOOR_Y - 2.2) {
           p.position.set(0, -1000, 0);
           p.velocity.set(0, 0, 0);
         }
