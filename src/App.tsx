@@ -97,7 +97,7 @@ export default function App() {
                   : "1px solid transparent",
             }}
           >
-            Normal Use
+            Default Mode
           </button>
           <button
             onClick={() => setExperienceMode("optimisation")}
@@ -108,7 +108,7 @@ export default function App() {
                   : "1px solid transparent",
             }}
           >
-            Malt Blend Optimisation
+            BrewQuanta®
           </button>
         </div>
         <button
