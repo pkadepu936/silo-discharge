@@ -3,6 +3,7 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import SiloUnit from "./components/SiloUnit";
 import ColorLegend from "./components/ColorLegend";
+import ConveyorBelt from "./components/ConveyorBelt";
 
 type SimulationMode = "idle" | "discharging";
 type ExperienceMode = "normal" | "optimisation";
@@ -74,6 +75,60 @@ export default function App() {
       : silo3Colors;
   return (
     <div style={{ width: "100vw", height: "100vh", background: "#1a1a2e" }}>
+      {experienceMode === "optimisation" && (
+        <div
+          style={{
+            position: "absolute",
+            top: 18,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 2,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 10,
+            color: "white",
+            pointerEvents: "none",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 36,
+              fontWeight: 800,
+              letterSpacing: 0.8,
+              textShadow: "0 2px 16px rgba(0,0,0,0.45)",
+            }}
+          >
+            BrewQuanta®
+          </div>
+          <div
+            style={{
+              padding: "10px 20px",
+              borderRadius: 999,
+              background:
+                "linear-gradient(90deg, rgba(255,158,66,0.95), rgba(255,214,102,0.95))",
+              color: "#1f1f1f",
+              fontWeight: 800,
+              fontSize: 16,
+              letterSpacing: 0.4,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+            }}
+          >
+            SILO DISCHARGE + MALT BLEND OPTIMISATION
+          </div>
+          <div
+            style={{
+              fontSize: 56,
+              lineHeight: 1,
+              color: "#ffd666",
+              textShadow: "0 0 18px rgba(255,214,102,0.55)",
+            }}
+          >
+            ↓
+          </div>
+        </div>
+      )}
       <div
         style={{
           position: "absolute",
@@ -177,6 +232,7 @@ export default function App() {
           layers={silo3Layers}
           layerColors={activeSilo3Colors}
         />
+        <ConveyorBelt />
 
         <OrbitControls />
       </Canvas>
