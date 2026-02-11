@@ -7,6 +7,47 @@ import ConveyorBelt from "./components/ConveyorBelt";
 
 type SimulationMode = "idle" | "discharging";
 type ExperienceMode = "normal" | "optimisation";
+type SiloProfile = {
+  fillRatio: number;
+  lotWeights: [number, number, number];
+};
+const DEFAULT_HEEL_RATIO = 0.2;
+const DEFAULT_TARGETS: [number, number, number] = [
+  1 - DEFAULT_HEEL_RATIO,
+  1 - DEFAULT_HEEL_RATIO,
+  1 - DEFAULT_HEEL_RATIO,
+];
+const BREWQUANTA_TARGETS: [number, number, number] = [2 / 3, 1 / 6, 1 / 3];
+
+function randomLotWeights(): [number, number, number] {
+  const raw = [
+    0.35 + Math.random() * 1.2,
+    0.35 + Math.random() * 1.2,
+    0.35 + Math.random() * 1.2,
+  ];
+  const total = raw[0] + raw[1] + raw[2];
+  return [raw[0] / total, raw[1] / total, raw[2] / total];
+}
+
+function createRandomProfiles(): [SiloProfile, SiloProfile, SiloProfile] {
+  return [
+    { fillRatio: 0.6 + Math.random() * 0.28, lotWeights: randomLotWeights() },
+    { fillRatio: 0.6 + Math.random() * 0.28, lotWeights: randomLotWeights() },
+    { fillRatio: 0.6 + Math.random() * 0.28, lotWeights: randomLotWeights() },
+  ];
+}
+
+function createBrewQuantaProfiles(): [SiloProfile, SiloProfile, SiloProfile] {
+  return [
+    { fillRatio: 0.88, lotWeights: [0.5, 0.35, 0.15] },
+    { fillRatio: 0.85, lotWeights: [0.2, 0.45, 0.35] },
+    { fillRatio: 0.86, lotWeights: [0.3, 0.25, 0.45] },
+  ];
+}
+
+function profilesForMode(mode: ExperienceMode) {
+  return mode === "optimisation" ? createBrewQuantaProfiles() : createRandomProfiles();
+}
 
 export default function App() {
   const [mode, setMode] = useState<SimulationMode>("idle");
@@ -14,6 +55,9 @@ export default function App() {
   const [dischargeRunId, setDischargeRunId] = useState(0);
   const [resetTrigger, setResetTrigger] = useState(0);
   const [flowSpeed, setFlowSpeed] = useState(0.45);
+  const [siloProfiles, setSiloProfiles] = useState<[SiloProfile, SiloProfile, SiloProfile]>(
+    () => profilesForMode("optimisation"),
+  );
   const [siloFillRatios, setSiloFillRatios] = useState<[number, number, number]>([
     0, 0, 0,
   ]);
@@ -79,10 +123,14 @@ export default function App() {
       ? Array.from({ length: silo3Layers }, () => normalGray)
       : silo3Colors;
 
-  const isContainerFilled = siloFillRatios.every((ratio) => ratio >= 0.95);
+  const activeTargets =
+    experienceMode === "optimisation" ? BREWQUANTA_TARGETS : DEFAULT_TARGETS;
+  const isTargetReached = siloFillRatios.every(
+    (ratio, idx) => ratio >= Math.max(0, activeTargets[idx] - 0.01),
+  );
 
   useEffect(() => {
-    if (experienceMode !== "optimisation" || mode === "discharging" || !isContainerFilled) {
+    if (experienceMode !== "optimisation" || mode === "discharging" || !isTargetReached) {
       setShowBlendReady(false);
       return;
     }
@@ -91,7 +139,13 @@ export default function App() {
       setShowBlendReady(true);
     }, 650);
     return () => clearTimeout(timer);
-  }, [experienceMode, mode, isContainerFilled]);
+  }, [experienceMode, mode, isTargetReached]);
+
+  useEffect(() => {
+    if (mode === "discharging" && isTargetReached) {
+      setMode("idle");
+    }
+  }, [mode, isTargetReached]);
 
   const updateSiloFill = (index: number, ratio: number) => {
     setSiloFillRatios((prev) => {
@@ -144,59 +198,33 @@ export default function App() {
               boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
             }}
           >
-            SILO DISCHARGE
-          </div>
-          <div
-            style={{
-              fontSize: 56,
-              lineHeight: 1,
-              color: "#ffd666",
-              textShadow: "0 0 18px rgba(255,214,102,0.55)",
-            }}
-          >
-            ↓
+            Silo Discharge Simulation (SDS)
           </div>
         </div>
       )}
-      {experienceMode === "optimisation" && (
+      {experienceMode === "optimisation" && mode === "discharging" && (
         <div
           style={{
             position: "absolute",
-            bottom: 18,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 2,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 2,
-            color: "white",
+            top: 104,
+            right: 26,
+            zIndex: 3,
             pointerEvents: "none",
-            textAlign: "center",
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.2)",
+            background: "rgba(12, 18, 36, 0.82)",
+            color: "white",
+            boxShadow: "0 8px 22px rgba(0,0,0,0.3)",
+            textAlign: "left",
+            minWidth: 240,
           }}
         >
-          <div
-            style={{
-              fontSize: 48,
-              lineHeight: 1,
-              color: "#ffd666",
-              textShadow: "0 0 18px rgba(255,214,102,0.55)",
-            }}
-          >
-            ↑
+          <div style={{ fontSize: 12, letterSpacing: 0.6, opacity: 0.75 }}>
+            STRATEGY ACTIVE
           </div>
-          <div
-            style={{
-              padding: "8px 16px",
-              borderRadius: 999,
-              background: "rgba(21, 27, 42, 0.88)",
-              border: "1px solid rgba(255,255,255,0.26)",
-              fontWeight: 700,
-              fontSize: 14,
-              letterSpacing: 0.4,
-            }}
-          >
-            MALT BLEND OPTIMISATION
+          <div style={{ marginTop: 3, fontSize: 14, fontWeight: 700 }}>
+            S1: 2.0 lots | S2: 0.5 lot | S3: 1.0 lot
           </div>
         </div>
       )}
@@ -204,9 +232,9 @@ export default function App() {
         <div
           style={{
             position: "absolute",
-            right: 72,
-            top: "46%",
-            transform: "translateY(-100%)",
+            left: "80%",
+            top: "66%",
+            transform: "translate(-50%, -100%)",
             zIndex: 3,
             pointerEvents: "none",
             padding: "14px 18px",
@@ -242,7 +270,13 @@ export default function App() {
       >
         <div style={{ display: "flex", gap: 8 }}>
           <button
-            onClick={() => setExperienceMode("normal")}
+            onClick={() => {
+              setExperienceMode("normal");
+              setShowBlendReady(false);
+              setSiloProfiles(profilesForMode("normal"));
+              setSiloFillRatios([0, 0, 0]);
+              setResetTrigger((v) => v + 1);
+            }}
             style={{
               border:
                 experienceMode === "normal"
@@ -253,7 +287,13 @@ export default function App() {
             Default Mode
           </button>
           <button
-            onClick={() => setExperienceMode("optimisation")}
+            onClick={() => {
+              setExperienceMode("optimisation");
+              setShowBlendReady(false);
+              setSiloProfiles(profilesForMode("optimisation"));
+              setSiloFillRatios([0, 0, 0]);
+              setResetTrigger((v) => v + 1);
+            }}
             style={{
               border:
                 experienceMode === "optimisation"
@@ -271,6 +311,9 @@ export default function App() {
               return;
             }
             setShowBlendReady(false);
+            setSiloProfiles(profilesForMode(experienceMode));
+            setSiloFillRatios([0, 0, 0]);
+            setResetTrigger((v) => v + 1);
             setDischargeRunId((v) => v + 1);
             setMode("discharging");
           }}
@@ -283,6 +326,7 @@ export default function App() {
             setMode("idle");
             setFlowSpeed(0.45);
             setShowBlendReady(false);
+            setSiloProfiles(profilesForMode(experienceMode));
             setSiloFillRatios([0, 0, 0]);
             setResetTrigger((v) => v + 1);
           }}
@@ -323,8 +367,10 @@ export default function App() {
           dischargeRunId={dischargeRunId}
           startDelaySeconds={0}
           worldX={-3}
+          targetDischargeRatio={activeTargets[0]}
+          fillRatio={siloProfiles[0].fillRatio}
+          layerVolumeWeights={siloProfiles[0].lotWeights}
           onContainerFillProgress={(ratio) => updateSiloFill(0, ratio)}
-          onDischargeComplete={() => setMode("idle")}
         />
         <SiloUnit
           position={[0, 0, 0]}
@@ -336,6 +382,9 @@ export default function App() {
           dischargeRunId={dischargeRunId}
           startDelaySeconds={3}
           worldX={0}
+          targetDischargeRatio={activeTargets[1]}
+          fillRatio={siloProfiles[1].fillRatio}
+          layerVolumeWeights={siloProfiles[1].lotWeights}
           onContainerFillProgress={(ratio) => updateSiloFill(1, ratio)}
         />
         <SiloUnit
@@ -348,6 +397,9 @@ export default function App() {
           dischargeRunId={dischargeRunId}
           startDelaySeconds={6}
           worldX={3}
+          targetDischargeRatio={activeTargets[2]}
+          fillRatio={siloProfiles[2].fillRatio}
+          layerVolumeWeights={siloProfiles[2].lotWeights}
           onContainerFillProgress={(ratio) => updateSiloFill(2, ratio)}
         />
         <ConveyorBelt />

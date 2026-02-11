@@ -104,10 +104,19 @@ interface ParticlesProps {
   layers: number;
   layerColors: string[];
   worldX: number;
+  targetDischargeRatio: number;
+  fillRatio: number;
+  layerVolumeWeights: number[];
   dischargeRunId: number;
   startDelaySeconds: number;
   onContainerFillProgress?: (fillRatio: number) => void;
   onDischargeComplete?: () => void;
+}
+
+interface ParticleLayout {
+  particles: Particle[];
+  layerParticleCounts: number[];
+  totalParticles: number;
 }
 
 function Particles({
@@ -117,12 +126,15 @@ function Particles({
   layers,
   layerColors,
   worldX,
+  targetDischargeRatio,
+  fillRatio,
+  layerVolumeWeights,
   dischargeRunId,
   startDelaySeconds,
   onContainerFillProgress,
   onDischargeComplete,
 }: ParticlesProps) {
-  const PARTICLES_PER_LAYER = 6000;
+  const BASE_PARTICLES_PER_LAYER = 6000;
   const LAYERS = layers;
 
   const SILO_RADIUS = 1.5;
@@ -142,30 +154,71 @@ function Particles({
   const CONTAINER_MIN_X = CONTAINER_MIN_WORLD_X - worldX;
   const CONTAINER_MAX_X = CONTAINER_MAX_WORLD_X - worldX;
 
-  // 🔧 Layer realism tuning
-  // Calculate total silo height and make layers take up 75% of it
-  const TOTAL_SILO_HEIGHT = CYLINDER_HEIGHT + CONE_HEIGHT; // 4.5 units
-  const LAYER_HEIGHT = (TOTAL_SILO_HEIGHT * 0.75) / LAYERS; // Dynamic height per layer
-  const LAYER_MIX_RATIO = 0.4; //vertical mixing ratio
-  const MIX_OFFSET = LAYER_HEIGHT * LAYER_MIX_RATIO;
+  // 4.5 units total (cylinder + cone). Fill ratio and lot splits vary per silo.
+  const TOTAL_SILO_HEIGHT = CYLINDER_HEIGHT + CONE_HEIGHT;
 
-  const [particles] = useState<Particle[]>(() => {
-    const arr: Particle[] = [];
+  const buildParticleLayout = (): ParticleLayout => {
+    const normalizedWeights = Array.from({ length: LAYERS }, (_, i) =>
+      Math.max(0.05, layerVolumeWeights[i] ?? 1),
+    );
+    const totalWeight = normalizedWeights.reduce((sum, w) => sum + w, 0);
+    for (let i = 0; i < normalizedWeights.length; i++) {
+      normalizedWeights[i] /= totalWeight;
+    }
 
-    const MIN_Y = coneBottom;
-    const MAX_Y = coneBottom + LAYERS * LAYER_HEIGHT;
+    const clampedFillRatio = clamp(fillRatio, 0.5, 0.95);
+    const totalFillHeight = TOTAL_SILO_HEIGHT * clampedFillRatio;
+    const minY = coneBottom;
+    const maxY = coneBottom + totalFillHeight;
+
+    const baseTotal = BASE_PARTICLES_PER_LAYER * LAYERS;
+    const targetTotalParticles = Math.max(
+      LAYERS * 1200,
+      Math.round(baseTotal * (clampedFillRatio / 0.75)),
+    );
+
+    const rawCounts = normalizedWeights.map((w) => w * targetTotalParticles);
+    const layerParticleCounts = rawCounts.map((c) => Math.floor(c));
+    let remainder =
+      targetTotalParticles -
+      layerParticleCounts.reduce((sum, count) => sum + count, 0);
+    while (remainder > 0) {
+      let bestIdx = 0;
+      let bestFrac = -1;
+      for (let i = 0; i < LAYERS; i++) {
+        const frac = rawCounts[i] - Math.floor(rawCounts[i]);
+        if (frac > bestFrac) {
+          bestFrac = frac;
+          bestIdx = i;
+        }
+      }
+      layerParticleCounts[bestIdx]++;
+      remainder--;
+    }
+
+    const layerBounds: number[] = [minY];
+    let cursor = minY;
+    for (let i = 0; i < LAYERS; i++) {
+      cursor += totalFillHeight * normalizedWeights[i];
+      layerBounds.push(cursor);
+    }
+    layerBounds[layerBounds.length - 1] = maxY;
+
+    const particles: Particle[] = [];
+    let particleId = 0;
 
     for (let layer = 0; layer < LAYERS; layer++) {
-      const layerBottomY = coneBottom + layer * LAYER_HEIGHT;
+      const layerStartY = layerBounds[layer];
+      const layerEndY = layerBounds[layer + 1];
+      const layerHeight = Math.max(0.05, layerEndY - layerStartY);
+      const mixOffset = layerHeight * 0.28;
 
-      for (let i = 0; i < PARTICLES_PER_LAYER; i++) {
+      for (let i = 0; i < layerParticleCounts[layer]; i++) {
         let y =
-          layerBottomY +
-          Math.random() * LAYER_HEIGHT +
-          (Math.random() * 2 - 1) * MIX_OFFSET;
-
-        // clamp vertical spill
-        y = Math.max(MIN_Y, Math.min(MAX_Y, y));
+          layerStartY +
+          Math.random() * layerHeight +
+          (Math.random() * 2 - 1) * mixOffset;
+        y = Math.max(minY, Math.min(maxY, y));
 
         let maxRadius;
         if (y < 0) {
@@ -180,11 +233,10 @@ function Particles({
         const r = Math.sqrt(Math.random()) * (maxRadius - 0.03);
         const x = Math.cos(angle) * r;
         const z = Math.sin(angle) * r;
-
         const pos = new THREE.Vector3(x, y, z);
 
-        arr.push({
-          id: layer * PARTICLES_PER_LAYER + i,
+        particles.push({
+          id: particleId++,
           position: pos.clone(),
           velocity: new THREE.Vector3(),
           layer,
@@ -197,8 +249,17 @@ function Particles({
       }
     }
 
-    return arr;
-  });
+    return {
+      particles,
+      layerParticleCounts,
+      totalParticles: particles.length,
+    };
+  };
+
+  const [layout, setLayout] = useState<ParticleLayout>(() => buildParticleLayout());
+  const particles = layout.particles;
+  const layerParticleCounts = layout.layerParticleCounts;
+  const totalParticles = layout.totalParticles;
 
   const instancedMeshRefs = useRef<(THREE.InstancedMesh | null)[]>([]);
   const temp = useMemo(() => new THREE.Object3D(), []);
@@ -222,15 +283,12 @@ function Particles({
     }
 
     if (prevReset.current !== resetTrigger) {
-      particles.forEach((p) => {
-        p.position.copy(p.initialPosition);
-        p.velocity.set(0, 0, 0);
-        p.captured = false;
-      });
+      setLayout(buildParticleLayout());
       prevReset.current = resetTrigger;
       lastReportedFill.current = 0;
       onContainerFillProgress?.(0);
       nextStopPercentage.current = 33.3; // Reset target to first 33% mark
+      return;
     }
 
     const elapsedSinceRunStart = state.clock.elapsedTime - dischargeStartTime.current;
@@ -240,23 +298,34 @@ function Particles({
     // Count discharged particles (those that have been "killed")
     let dischargedCount = 0;
     let capturedCount = 0;
-    const totalParticles = particles.length;
-
     particles.forEach((p) => {
-      // Count particles captured in container as discharged mass.
       if (p.captured) {
         dischargedCount++;
         capturedCount++;
         return;
       }
-
       if (p.position.y <= -999) {
         dischargedCount++;
+      }
+    });
+
+    const dischargeRatioBeforeStep = dischargedCount / totalParticles;
+    const canReleaseFromSilo =
+      isSiloEnabled && dischargeRatioBeforeStep < targetDischargeRatio;
+
+    particles.forEach((p) => {
+      // Count particles captured in container as discharged mass.
+      if (p.captured) {
+        return;
+      }
+
+      if (p.position.y <= -999) {
+        return;
       }
 
       const isOutsideSilo = p.position.y < OUTLET_EXIT_Y;
 
-      if (!isSiloEnabled && !isOutsideSilo) {
+      if (!canReleaseFromSilo && !isOutsideSilo) {
         p.velocity.set(0, 0, 0);
         return;
       }
@@ -456,16 +525,19 @@ function Particles({
 
   return (
     <group>
-      {Array.from({ length: LAYERS }).map((_, layer) => (
-        <instancedMesh
-          key={layer}
-          ref={(r) => (instancedMeshRefs.current[layer] = r)}
-          args={[undefined, undefined, PARTICLES_PER_LAYER]}
-        >
-          <sphereGeometry args={[0.025, 8, 8]} />
-          <meshStandardMaterial color={layerColors[layer]} />
-        </instancedMesh>
-      ))}
+      {Array.from({ length: LAYERS }).map((_, layer) => {
+        const count = Math.max(1, layerParticleCounts[layer] ?? 1);
+        return (
+          <instancedMesh
+            key={layer}
+            ref={(r) => (instancedMeshRefs.current[layer] = r)}
+            args={[undefined, undefined, count]}
+          >
+            <sphereGeometry args={[0.025, 8, 8]} />
+            <meshStandardMaterial color={layerColors[layer]} />
+          </instancedMesh>
+        );
+      })}
     </group>
   );
 }
@@ -513,6 +585,9 @@ interface SiloUnitProps {
   layers: number;
   layerColors: string[];
   worldX: number;
+  targetDischargeRatio: number;
+  fillRatio: number;
+  layerVolumeWeights: number[];
   dischargeRunId: number;
   startDelaySeconds: number;
   onContainerFillProgress?: (fillRatio: number) => void;
@@ -527,6 +602,9 @@ export default function SiloUnit({
   layers,
   layerColors,
   worldX,
+  targetDischargeRatio,
+  fillRatio,
+  layerVolumeWeights,
   dischargeRunId,
   startDelaySeconds,
   onContainerFillProgress,
@@ -542,6 +620,9 @@ export default function SiloUnit({
         layers={layers}
         layerColors={layerColors}
         worldX={worldX}
+        targetDischargeRatio={targetDischargeRatio}
+        fillRatio={fillRatio}
+        layerVolumeWeights={layerVolumeWeights}
         dischargeRunId={dischargeRunId}
         startDelaySeconds={startDelaySeconds}
         onContainerFillProgress={onContainerFillProgress}
