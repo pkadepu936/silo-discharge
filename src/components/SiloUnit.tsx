@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
@@ -263,11 +263,18 @@ function Particles({
 
   const instancedMeshRefs = useRef<(THREE.InstancedMesh | null)[]>([]);
   const temp = useMemo(() => new THREE.Object3D(), []);
-  const prevReset = useRef(resetTrigger);
   const prevDischargeRunId = useRef(dischargeRunId);
   const dischargeStartTime = useRef(0);
   const lastReportedFill = useRef(-1);
   const nextStopPercentage = useRef(33.3); // Track the next percentage to stop at
+
+  useEffect(() => {
+    instancedMeshRefs.current = [];
+    setLayout(buildParticleLayout());
+    lastReportedFill.current = 0;
+    onContainerFillProgress?.(0);
+    nextStopPercentage.current = 33.3;
+  }, [resetTrigger, fillRatio, layerVolumeWeights, layers]);
 
   useFrame((state, delta) => {
     const GRAVITY = -3.4 * flowSpeed;
@@ -280,15 +287,6 @@ function Particles({
     if (prevDischargeRunId.current !== dischargeRunId) {
       prevDischargeRunId.current = dischargeRunId;
       dischargeStartTime.current = state.clock.elapsedTime;
-    }
-
-    if (prevReset.current !== resetTrigger) {
-      setLayout(buildParticleLayout());
-      prevReset.current = resetTrigger;
-      lastReportedFill.current = 0;
-      onContainerFillProgress?.(0);
-      nextStopPercentage.current = 33.3; // Reset target to first 33% mark
-      return;
     }
 
     const elapsedSinceRunStart = state.clock.elapsedTime - dischargeStartTime.current;
@@ -305,6 +303,11 @@ function Particles({
         return;
       }
       if (p.position.y <= -999) {
+        dischargedCount++;
+        return;
+      }
+      // Count particles that already left the silo outlet as committed discharge.
+      if (p.position.y < OUTLET_EXIT_Y) {
         dischargedCount++;
       }
     });
@@ -510,15 +513,17 @@ function Particles({
     for (let layer = 0; layer < LAYERS; layer++) {
       const mesh = instancedMeshRefs.current[layer];
       if (!mesh) continue;
+      const maxCount = mesh.count;
 
       let idx = 0;
       particles.forEach((p) => {
-        if (p.layer === layer) {
+        if (p.layer === layer && idx < maxCount) {
           temp.position.copy(p.position);
           temp.updateMatrix();
           mesh.setMatrixAt(idx++, temp.matrix);
         }
       });
+      mesh.count = Math.min(idx, maxCount);
       mesh.instanceMatrix.needsUpdate = true;
     }
   });
@@ -529,7 +534,7 @@ function Particles({
         const count = Math.max(1, layerParticleCounts[layer] ?? 1);
         return (
           <instancedMesh
-            key={layer}
+            key={`${layer}-${count}`}
             ref={(r) => (instancedMeshRefs.current[layer] = r)}
             args={[undefined, undefined, count]}
           >

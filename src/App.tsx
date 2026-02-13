@@ -39,9 +39,9 @@ function createRandomProfiles(): [SiloProfile, SiloProfile, SiloProfile] {
 
 function createBrewQuantaProfiles(): [SiloProfile, SiloProfile, SiloProfile] {
   return [
-    { fillRatio: 0.88, lotWeights: [0.5, 0.35, 0.15] },
-    { fillRatio: 0.85, lotWeights: [0.2, 0.45, 0.35] },
-    { fillRatio: 0.86, lotWeights: [0.3, 0.25, 0.45] },
+    { fillRatio: 0.86, lotWeights: [0.46, 0.32, 0.22] },
+    { fillRatio: 0.78, lotWeights: [0.24, 0.41, 0.35] },
+    { fillRatio: 0.91, lotWeights: [0.29, 0.27, 0.44] },
   ];
 }
 
@@ -61,7 +61,6 @@ export default function App() {
   const [siloFillRatios, setSiloFillRatios] = useState<[number, number, number]>([
     0, 0, 0,
   ]);
-  const [showBlendReady, setShowBlendReady] = useState(false);
 
   // Define layer configurations for each silo
   // Each silo has completely unique colors with no overlap
@@ -88,7 +87,7 @@ export default function App() {
 
   // Merge all colors for the legend
   const allColors = [...silo1Colors, ...silo2Colors, ...silo3Colors];
-  const normalGray = "#9EA3A8";
+  const defaultModePalette = ["#E7ECF5", "#C7D0DE", "#A2AFC3"];
 
   // Handle color change from the color picker
   const handleColorChange = (index: number, newColor: string) => {
@@ -112,15 +111,15 @@ export default function App() {
 
   const activeSilo1Colors =
     experienceMode === "normal"
-      ? Array.from({ length: silo1Layers }, () => normalGray)
+      ? defaultModePalette.slice(0, silo1Layers)
       : silo1Colors;
   const activeSilo2Colors =
     experienceMode === "normal"
-      ? Array.from({ length: silo2Layers }, () => normalGray)
+      ? defaultModePalette.slice(0, silo2Layers)
       : silo2Colors;
   const activeSilo3Colors =
     experienceMode === "normal"
-      ? Array.from({ length: silo3Layers }, () => normalGray)
+      ? defaultModePalette.slice(0, silo3Layers)
       : silo3Colors;
 
   const activeTargets =
@@ -128,18 +127,6 @@ export default function App() {
   const isTargetReached = siloFillRatios.every(
     (ratio, idx) => ratio >= Math.max(0, activeTargets[idx] - 0.01),
   );
-
-  useEffect(() => {
-    if (experienceMode !== "optimisation" || mode === "discharging" || !isTargetReached) {
-      setShowBlendReady(false);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      setShowBlendReady(true);
-    }, 650);
-    return () => clearTimeout(timer);
-  }, [experienceMode, mode, isTargetReached]);
 
   useEffect(() => {
     if (mode === "discharging" && isTargetReached) {
@@ -158,103 +145,6 @@ export default function App() {
 
   return (
     <div style={{ width: "100vw", height: "100vh", background: "#1a1a2e" }}>
-      {experienceMode === "optimisation" && (
-        <div
-          style={{
-            position: "absolute",
-            top: 18,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 2,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 10,
-            color: "white",
-            pointerEvents: "none",
-            textAlign: "center",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 36,
-              fontWeight: 800,
-              letterSpacing: 0.8,
-              textShadow: "0 2px 16px rgba(0,0,0,0.45)",
-            }}
-          >
-            BrewQuanta®
-          </div>
-          <div
-            style={{
-              padding: "10px 20px",
-              borderRadius: 999,
-              background:
-                "linear-gradient(90deg, rgba(255,158,66,0.95), rgba(255,214,102,0.95))",
-              color: "#1f1f1f",
-              fontWeight: 800,
-              fontSize: 16,
-              letterSpacing: 0.4,
-              boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
-            }}
-          >
-            Silo Discharge Simulation (SDS)
-          </div>
-        </div>
-      )}
-      {experienceMode === "optimisation" && mode === "discharging" && (
-        <div
-          style={{
-            position: "absolute",
-            top: 104,
-            right: 26,
-            zIndex: 3,
-            pointerEvents: "none",
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.2)",
-            background: "rgba(12, 18, 36, 0.82)",
-            color: "white",
-            boxShadow: "0 8px 22px rgba(0,0,0,0.3)",
-            textAlign: "left",
-            minWidth: 240,
-          }}
-        >
-          <div style={{ fontSize: 12, letterSpacing: 0.6, opacity: 0.75 }}>
-            STRATEGY ACTIVE
-          </div>
-          <div style={{ marginTop: 3, fontSize: 14, fontWeight: 700 }}>
-            S1: 2.0 lots | S2: 0.5 lot | S3: 1.0 lot
-          </div>
-        </div>
-      )}
-      {experienceMode === "optimisation" && showBlendReady && (
-        <div
-          style={{
-            position: "absolute",
-            left: "80%",
-            top: "66%",
-            transform: "translate(-50%, -100%)",
-            zIndex: 3,
-            pointerEvents: "none",
-            padding: "14px 18px",
-            borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.24)",
-            background: "rgba(12, 18, 36, 0.86)",
-            color: "white",
-            boxShadow: "0 10px 26px rgba(0,0,0,0.35)",
-            textAlign: "left",
-            minWidth: 280,
-          }}
-        >
-          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 0.4 }}>
-            BrewQuanta® Blend Ready
-          </div>
-          <div style={{ marginTop: 4, fontSize: 14, opacity: 0.9 }}>
-            Repeatable flavor. Predictable output.
-          </div>
-        </div>
-      )}
       <div
         style={{
           position: "absolute",
@@ -272,7 +162,6 @@ export default function App() {
           <button
             onClick={() => {
               setExperienceMode("normal");
-              setShowBlendReady(false);
               setSiloProfiles(profilesForMode("normal"));
               setSiloFillRatios([0, 0, 0]);
               setResetTrigger((v) => v + 1);
@@ -289,7 +178,6 @@ export default function App() {
           <button
             onClick={() => {
               setExperienceMode("optimisation");
-              setShowBlendReady(false);
               setSiloProfiles(profilesForMode("optimisation"));
               setSiloFillRatios([0, 0, 0]);
               setResetTrigger((v) => v + 1);
@@ -310,7 +198,6 @@ export default function App() {
               setMode("idle");
               return;
             }
-            setShowBlendReady(false);
             setSiloProfiles(profilesForMode(experienceMode));
             setSiloFillRatios([0, 0, 0]);
             setResetTrigger((v) => v + 1);
@@ -325,7 +212,6 @@ export default function App() {
           onClick={() => {
             setMode("idle");
             setFlowSpeed(0.45);
-            setShowBlendReady(false);
             setSiloProfiles(profilesForMode(experienceMode));
             setSiloFillRatios([0, 0, 0]);
             setResetTrigger((v) => v + 1);
